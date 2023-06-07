@@ -1,0 +1,4 @@
+FastAPI
+python-multipart
+SQLAlchemy
+uvicorn
