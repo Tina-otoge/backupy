@@ -16,7 +16,7 @@ HASH_CHUNK_SIZE = 4096
 async def upload(request: Request, name: str, hash: str):
     with db.session() as s:
         if s.get(db.File, hash):
-            return {"message": "File already exists"}
+            return {"message": "File already exists", "action": "skip"}
     relative_path = Path(name)
     file_path = library / relative_path
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -32,10 +32,10 @@ async def upload(request: Request, name: str, hash: str):
         file_path.unlink()
         msg = f"Hash mismatch: {file_hash.hexdigest()} != {hash}, file deleted"
         print(msg)
-        return {"message": msg}
+        return {"message": msg, "action": "error"}
     with db.session() as s:
         s.add(db.File(hash=hash, path=str(relative_path)))
-    return {"message": "File uploaded successfully"}
+    return {"message": "File uploaded successfully", "action": "upload"}
 
 
 def get_hash(file: Path):
@@ -49,21 +49,30 @@ def get_hash(file: Path):
 @app.post("/sync")
 async def sync():
     start = time.time()
+    library.mkdir(exist_ok=True)
     tmp_library = library.with_suffix(".sync")
     library.rename(tmp_library)
     added_files = 0
     matched_files = 0
     deleted_files = 0
+    renamed_files = 0
     for file in tmp_library.glob("**/*"):
+        if not file.is_file():
+            continue
         relative_path = file.relative_to(tmp_library)
+        path = str(relative_path)
         hash = get_hash(file)
         with db.session() as s:
             file = s.get(db.File, hash)
             if file:
-                file.path = str(relative_path)
-                matched_files += 1
+                if file.path != path:
+                    print(f"File {path} moved to {file.path}")
+                    file.path = path
+                    renamed_files += 1
+                else:
+                    matched_files += 1
             else:
-                file = db.File(hash=hash, path=str(relative_path))
+                file = db.File(hash=hash, path=path)
                 s.add(file)
                 added_files += 1
     with db.session() as s:
@@ -77,8 +86,9 @@ async def sync():
         "message": "Sync successful",
         "stats": {
             "added_files": added_files,
-            "matched_files": matched_files,
             "deleted_files": deleted_files,
+            "matched_files": matched_files,
+            "renamed_files": renamed_files,
             "duration": end - start,
         },
     }

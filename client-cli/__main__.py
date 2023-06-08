@@ -11,27 +11,57 @@ HASH_CHUNK_SIZE = 4096
 
 parser = ArgumentParser()
 parser.add_argument("url", type=str, help="URL to upload to")
-parser.add_argument("file", type=str, help="File to upload")
+parser.add_argument("path", type=str, help="File to upload")
 
 args = parser.parse_args()
 
-file_size = os.path.getsize(args.file)
-file_hash = hashlib.md5()
-file = Path(args.file)
+path = Path(args.path)
 
-with file.open("rb") as f:
-    while chunk := f.read(HASH_CHUNK_SIZE):
-        file_hash.update(chunk)
 
-print(f"Uploading {args.file} ({file_size} bytes)")
-with open(args.file, "rb") as f:
-    response = requests.post(
-        args.url + "/upload",
-        data=f,
-        params={"name": file.name, "hash": file_hash.hexdigest()},
-        headers={"Content-Type": "multipart/form-data"},
-        stream=True,
-    )
-    json.dump(response.json(), sys.stdout, indent=4)
+def main():
+    if path.is_file():
+        upload_file(path, name=path.name)
+        return
+
+    if not path.is_dir():
+        print(f"{path} is not a file or directory")
+        return 1
+
+    stats = {}
+    for file in path.glob("**/*"):
+        if file.is_file():
+            action = upload_file(file, name=file.relative_to(path))
+            stats.setdefault(action, 0)
+            stats[action] += 1
+    print("Batch upload stats:")
+    json.dump(stats, sys.stdout, indent=4)
     print()
-    response.raise_for_status()
+
+
+def get_hash(file: Path):
+    file_hash = hashlib.md5()
+    with file.open("rb") as f:
+        while chunk := f.read(HASH_CHUNK_SIZE):
+            file_hash.update(chunk)
+    return file_hash.hexdigest()
+
+
+def upload_file(file: Path, name: str = None):
+    file_size = os.path.getsize(file)
+    print(f"Uploading {file} ({file_size} bytes)")
+    file_hash = get_hash(file)
+    with file.open("rb") as f:
+        response = requests.post(
+            args.url + "/upload",
+            data=f,
+            params={"name": name, "hash": file_hash},
+            headers={"Content-Type": "multipart/form-data"},
+            stream=True,
+        )
+        json.dump(response.json(), sys.stdout, indent=4)
+        print()
+        response.raise_for_status()
+    return response.json().get("action")
+
+
+sys.exit(main())
