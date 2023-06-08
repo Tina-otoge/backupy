@@ -1,5 +1,11 @@
+import os
+
 import uvicorn
 
-from .http import app
-
-uvicorn.run(app, host="0.0.0.0", port=8000)
+uvicorn.run(
+    "server.http:app",
+    host="0.0.0.0",
+    port=8000,
+    reload=os.environ.get("ENV", "dev") == "dev",
+    reload_dirs=["server"],
+)

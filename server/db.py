@@ -1,9 +1,10 @@
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped as Column
-from sqlalchemy.orm import declared_attr
+from sqlalchemy.orm import Session, declared_attr
 from sqlalchemy.orm import mapped_column as column
 
 
@@ -24,3 +25,10 @@ var_dir.mkdir(exist_ok=True)
 engine = create_engine("sqlite+pysqlite:///./var/backupy.db", echo=True)
 
 Base.metadata.create_all(engine)
+
+
+@contextmanager
+def session() -> Session:
+    with Session(engine) as s:
+        yield s
+        s.commit()
