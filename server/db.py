@@ -1,14 +1,16 @@
+import secrets
 from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped as Column
-from sqlalchemy.orm import Session, declared_attr
+from sqlalchemy.orm import MappedAsDataclass, Session, declared_attr
 from sqlalchemy.orm import mapped_column as column
+from sqlalchemy.orm import relationship
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase, MappedAsDataclass):
     @declared_attr.directive
     def __tablename__(cls) -> str:
         return cls.__name__.lower() + "s"
@@ -17,6 +19,32 @@ class Base(DeclarativeBase):
 class File(Base):
     hash: Column[str] = column(primary_key=True)
     path: Column[str]
+
+
+class User(Base):
+    id: Column[int] = column(primary_key=True)
+    name: Column[str]
+
+    tokens: Column[list["Token"]] = relationship("Token", back_populates="user")
+
+
+class Token(Base):
+    id: Column[int] = column(primary_key=True)
+    user_id: Column[int] = column()
+    random: Column[str] = column(default_factory=lambda: secrets.token_hex(16))
+
+    user: Column["User"] = relationship(default=None, back_populates="tokens")
+
+    def token(self) -> str:
+        return f"{self.id}:{self.random}"
+
+    @classmethod
+    def from_token(cls, session, token: str):
+        id, random = token.split(":")
+        token = session.get(cls, int(id))
+        if token is None or token.random != random:
+            raise ValueError("Invalid token")
+        return token
 
 
 var_dir = Path("./var")
