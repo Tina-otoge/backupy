@@ -12,6 +12,7 @@ HASH_CHUNK_SIZE = 4096
 parser = ArgumentParser()
 parser.add_argument("url", type=str, help="URL to upload to")
 parser.add_argument("path", type=str, help="File to upload")
+parser.add_argument("--token", type=str, help="Authentication token")
 
 args = parser.parse_args()
 
@@ -55,7 +56,7 @@ def upload_file(file: Path, name: str = None):
             args.url + "/upload",
             data=f,
             params={"name": name, "hash": file_hash},
-            headers={"Content-Type": "multipart/form-data"},
+            headers={"Authorization": f"Bearer {args.token}"},
             stream=True,
         )
         json.dump(response.json(), sys.stdout, indent=4)

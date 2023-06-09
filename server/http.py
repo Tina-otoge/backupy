@@ -1,10 +1,14 @@
+import functools
 import hashlib
+import inspect
 import time
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 
 from . import db
+from .config import REQUIRES_AUTH
 
 app = FastAPI()
 
@@ -12,14 +16,45 @@ library = Path("./files")
 HASH_CHUNK_SIZE = 4096
 
 
-@app.post("/upload")
-async def upload(request: Request, name: str, hash: str):
+def _auth(authorization: Annotated[str, Header()]):
+    if REQUIRES_AUTH and not authorization:
+        raise HTTPException(401, "Missing token")
+    if authorization:
+        prefix = "Bearer "
+        if not authorization.startswith(prefix):
+            raise HTTPException(401, "Invalid token")
+        authorization = authorization[len(prefix) :]
+        with db.session() as s:
+            token = db.Token.from_token(s, authorization)
+            if not token:
+                raise HTTPException(401, "Invalid token")
+            print(
+                f"User {token.user.name} authenticated using token {token.id}"
+            )
+
+
+auth = Depends(_auth)
+
+
+@app.post("/upload", dependencies=[auth])
+async def upload(
+    # Reading from request instead of UploadFile to support streaming
+    request: Request,
+    name: str,
+    hash: str,
+):
+    print("Uploading file", name, hash)
     with db.session() as s:
         if s.get(db.File, hash):
-            return {"message": "File already exists", "action": "skip"}
+            return {"message": "File already exists (hash)", "action": "skip"}
     relative_path = Path(name)
     file_path = library / relative_path
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    if file_path.exists():
+        return {
+            "message": "This path is already occupied by a different file",
+            "action": "error",
+        }
     total_uploaded = 0
     file_hash = hashlib.md5()
     with file_path.open("wb") as f:
@@ -46,7 +81,7 @@ def get_hash(file: Path):
     return file_hash.hexdigest()
 
 
-@app.post("/sync")
+@app.post("/sync", dependencies=[auth])
 async def sync():
     start = time.time()
     library.mkdir(exist_ok=True)

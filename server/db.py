@@ -2,12 +2,14 @@ import secrets
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import ForeignKey, create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped as Column
 from sqlalchemy.orm import MappedAsDataclass, Session, declared_attr
 from sqlalchemy.orm import mapped_column as column
 from sqlalchemy.orm import relationship
+
+from .config import SQL_ECHO
 
 
 class Base(DeclarativeBase, MappedAsDataclass):
@@ -22,18 +24,22 @@ class File(Base):
 
 
 class User(Base):
-    id: Column[int] = column(primary_key=True)
+    id: Column[int] = column(init=False, primary_key=True)
     name: Column[str]
 
-    tokens: Column[list["Token"]] = relationship("Token", back_populates="user")
+    tokens: Column[list["Token"]] = relationship(
+        default_factory=list, back_populates="user"
+    )
 
 
 class Token(Base):
-    id: Column[int] = column(primary_key=True)
-    user_id: Column[int] = column()
+    id: Column[int] = column(init=False, primary_key=True)
+    user_id: Column[int] = column(ForeignKey("users.id"), init=False)
     random: Column[str] = column(default_factory=lambda: secrets.token_hex(16))
 
-    user: Column["User"] = relationship(default=None, back_populates="tokens")
+    user: Column["User"] = relationship(
+        "User", uselist=False, default=None, back_populates="tokens"
+    )
 
     def token(self) -> str:
         return f"{self.id}:{self.random}"
@@ -50,7 +56,7 @@ class Token(Base):
 var_dir = Path("./var")
 var_dir.mkdir(exist_ok=True)
 
-engine = create_engine("sqlite+pysqlite:///./var/backupy.db", echo=True)
+engine = create_engine("sqlite+pysqlite:///./var/backupy.db", echo=SQL_ECHO)
 
 Base.metadata.create_all(engine)
 
@@ -58,5 +64,5 @@ Base.metadata.create_all(engine)
 @contextmanager
 def session() -> Session:
     with Session(engine) as s:
-        yield s
-        s.commit()
+        with s.begin():
+            yield s
